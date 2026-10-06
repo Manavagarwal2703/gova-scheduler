@@ -76,10 +76,19 @@ function CustomDayButton(props: DayButtonProps) {
       onPointerDown={(e) => ctx?.onDatePointerDown(e, dateStr)}
       onPointerEnter={() => ctx?.onDatePointerEnter(dateStr)}
       onClick={(e) => ctx?.onDateClick(e, dateStr)}
+      style={
+        isSelected
+          ? {
+              backgroundColor: "#4f46e5",
+              color: "#ffffff",
+              boxShadow: "0 0 0 2px #818cf8, 0 2px 6px rgba(79,70,229,0.45)",
+            }
+          : undefined
+      }
       className={cn(
         "relative flex items-center justify-center h-10 w-10 sm:h-11 sm:w-11 rounded-lg text-sm font-medium select-none touch-none transition-all duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1",
         isSelected
-          ? "bg-indigo-600 text-white font-semibold shadow-xs hover:bg-indigo-700 active:scale-95 z-10"
+          ? "font-semibold active:scale-95 z-10"
           : modifiers.outside
           ? "text-slate-300 dark:text-slate-600 hover:bg-slate-100/60 dark:hover:bg-slate-800/40"
           : modifiers.today
