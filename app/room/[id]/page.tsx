@@ -2,8 +2,12 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { UserModal } from "@/components/UserModal";
 import { ShareButton } from "@/components/ShareButton";
+import { CalendarGrid } from "@/components/CalendarGrid";
+import { HeatmapOverlay } from "@/components/HeatmapOverlay";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -13,8 +17,8 @@ import {
   ArrowLeft,
   Calendar,
   Layers,
-  Sparkles,
 } from "lucide-react";
+import { RoomDetails } from "@/types/contract";
 
 interface RoomPageProps {
   params: Promise<{ id: string }>;
@@ -30,12 +34,28 @@ export default function RoomPage({ params }: RoomPageProps) {
   const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [isInitialized, setIsInitialized] = React.useState(false);
 
+  // Fallback local state if Convex backend is not connected/configured yet
+  const [localFallbackRoom, setLocalFallbackRoom] = React.useState<RoomDetails>(() => ({
+    code: roomId,
+    createdAt: 0,
+    members: [],
+    availabilities: {},
+  }));
+
+  // Convex real-time subscription
+  const convexRoom = useQuery(api.rooms.getRoomDetails, { code: roomId });
+  const joinRoomMutation = useMutation(api.rooms.joinRoom);
+  const updateAvailabilityMutation = useMutation(api.rooms.updateAvailability);
+
+  // Active room data: use Convex if available, else local fallback
+  const activeRoom: RoomDetails = convexRoom ?? localFallbackRoom;
+
   // Initialize local user state safely on mount
   React.useEffect(() => {
-    const storedId = localStorage.getItem("gova_user_id");
-    const storedName = localStorage.getItem("gova_user_name");
-
     const timer = setTimeout(() => {
+      const storedId = localStorage.getItem("gova_user_id");
+      const storedName = localStorage.getItem("gova_user_name");
+
       if (storedId && storedName) {
         setUserId(storedId);
         setUserName(storedName);
@@ -48,11 +68,86 @@ export default function RoomPage({ params }: RoomPageProps) {
     return () => clearTimeout(timer);
   }, []);
 
+  // When user and room are ready, join the room in Convex
+  React.useEffect(() => {
+    if (!userId || !userName || !roomId) return;
+
+    joinRoomMutation({ code: roomId, name: userName, userId }).catch(() => {
+      // Ignore if offline
+    });
+
+    const timer = setTimeout(() => {
+      setLocalFallbackRoom((prev) => {
+        const exists = prev.members.some((m) => m.userId === userId);
+        const members = exists
+          ? prev.members.map((m) => (m.userId === userId ? { ...m, name: userName } : m))
+          : [...prev.members, { userId, name: userName, joinedAt: Date.now() }];
+        return { ...prev, members };
+      });
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [userId, userName, roomId, joinRoomMutation]);
+
   const handleSaveUser = (newId: string, newName: string) => {
     setUserId(newId);
     setUserName(newName);
     setIsModalOpen(false);
+
+    joinRoomMutation({ code: roomId, name: newName, userId: newId }).catch(() => {
+      // Ignore if offline
+    });
+
+    setLocalFallbackRoom((prev) => {
+      const exists = prev.members.some((m) => m.userId === newId);
+      const members = exists
+        ? prev.members.map((m) => (m.userId === newId ? { ...m, name: newName } : m))
+        : [...prev.members, { userId: newId, name: newName, joinedAt: Date.now() }];
+      return { ...prev, members };
+    });
   };
+
+  // Get current user's dates
+  const currentUserDates = React.useMemo(() => {
+    return activeRoom.availabilities[userId] || [];
+  }, [activeRoom.availabilities, userId]);
+
+  // Handle availability update
+  const handleDatesChange = React.useCallback(
+    (newDates: string[]) => {
+      if (!userId) return;
+
+      // Optimistic local update
+      setLocalFallbackRoom((prev) => ({
+        ...prev,
+        availabilities: {
+          ...prev.availabilities,
+          [userId]: newDates,
+        },
+      }));
+
+      // Remote Convex mutation
+      updateAvailabilityMutation({
+        code: roomId,
+        userId,
+        dates: newDates,
+      }).catch(() => {
+        // Ignore if offline
+      });
+    },
+    [roomId, userId, updateAvailabilityMutation]
+  );
+
+  const handleDateToggle = React.useCallback(
+    (dateStr: string) => {
+      const isSelected = currentUserDates.includes(dateStr);
+      const nextDates = isSelected
+        ? currentUserDates.filter((d) => d !== dateStr)
+        : [...currentUserDates, dateStr];
+      handleDatesChange(nextDates);
+    },
+    [currentUserDates, handleDatesChange]
+  );
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50/50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
@@ -125,7 +220,7 @@ export default function RoomPage({ params }: RoomPageProps) {
               </span>
             </div>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Share the room code or link with your group. Select your availability below to generate the heatmap.
+              Share this room with your group. Select your available dates below — the heatmap updates in real time!
             </p>
           </div>
 
@@ -135,30 +230,47 @@ export default function RoomPage({ params }: RoomPageProps) {
               <Users className="h-4 w-4 text-indigo-500" />
               <div className="text-xs">
                 <span className="font-semibold text-slate-900 dark:text-slate-100">
-                  {userName ? "1 Member" : "Connecting..."}
+                  {activeRoom.members.length} {activeRoom.members.length === 1 ? "Member" : "Members"}
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Member chips / list preview */}
-        {userName && (
-          <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 overflow-x-auto pb-1">
+        {/* Member chips list */}
+        {activeRoom.members.length > 0 && (
+          <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 overflow-x-auto pb-1 flex-wrap">
             <span className="font-medium text-slate-500 shrink-0">Members:</span>
-            <span
-              data-user-id={userId}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 shrink-0 font-medium"
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-indigo-600 animate-pulse" />
-              {userName} (You)
-            </span>
+            {activeRoom.members.map((m) => {
+              const isMe = m.userId === userId;
+              const userDateCount = (activeRoom.availabilities[m.userId] || []).length;
+              return (
+                <span
+                  key={m.userId}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs shrink-0 font-medium border ${
+                    isMe
+                      ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200/60 dark:border-indigo-800/60"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      isMe ? "bg-indigo-600 animate-pulse" : "bg-emerald-500"
+                    }`}
+                  />
+                  {m.name} {isMe && "(You)"}
+                  <span className="text-[10px] opacity-75 font-mono">
+                    ({userDateCount}d)
+                  </span>
+                </span>
+              );
+            })}
           </div>
         )}
 
-        {/* Calendar and Heatmap Container Grid */}
+        {/* Calendar and Heatmap Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* Calendar Picker Container */}
+          {/* Calendar Picker Card */}
           <Card id="calendar-container" className="border-slate-200 dark:border-slate-800 shadow-sm">
             <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center justify-between">
@@ -166,49 +278,40 @@ export default function RoomPage({ params }: RoomPageProps) {
                   <Calendar className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                   <CardTitle className="text-base font-semibold">Your Availability</CardTitle>
                 </div>
-                <span className="text-xs text-slate-400">Select dates</span>
+                <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                  {currentUserDates.length} selected
+                </span>
               </div>
             </CardHeader>
             <CardContent className="pt-6">
-              <div
-                id="calendar-slot"
-                className="min-h-[350px] flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-lg text-center bg-slate-50/50 dark:bg-slate-900/50"
-              >
-                <Calendar className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" />
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Availability Calendar
-                </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs">
-                  Interactive multi-date picker component mounts here.
-                </p>
-              </div>
+              <CalendarGrid
+                selectedDates={currentUserDates}
+                onDateToggle={handleDateToggle}
+                onDatesChange={handleDatesChange}
+              />
             </CardContent>
           </Card>
 
-          {/* Group Heatmap Container */}
+          {/* Group Heatmap Card */}
           <Card id="heatmap-container" className="border-slate-200 dark:border-slate-800 shadow-sm">
             <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <Layers className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                   <CardTitle className="text-base font-semibold">Group Heatmap</CardTitle>
                 </div>
-                <span className="text-xs text-slate-400">Live aggregate</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  Live Overlap
+                </span>
               </div>
             </CardHeader>
             <CardContent className="pt-6">
-              <div
-                id="heatmap-slot"
-                className="min-h-[350px] flex flex-col items-center justify-center p-6 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-lg text-center bg-slate-50/50 dark:bg-slate-900/50"
-              >
-                <Sparkles className="h-10 w-10 text-slate-300 dark:text-slate-600 mb-3" />
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Collective Availability Heatmap
-                </p>
-                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs">
-                  Real-time color-coded density grid and best dates mount here.
-                </p>
-              </div>
+              <HeatmapOverlay
+                roomCode={roomId}
+                members={activeRoom.members}
+                availabilities={activeRoom.availabilities}
+                onDateClick={(dateStr) => handleDateToggle(dateStr)}
+              />
             </CardContent>
           </Card>
         </div>

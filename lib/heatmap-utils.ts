@@ -1,4 +1,4 @@
-import { HeatmapCell, Member } from "@/types/contract";
+import type { HeatmapCell, Member } from "../types/contract";
 
 export function computeHeatmapCells(
   dates: string[],
