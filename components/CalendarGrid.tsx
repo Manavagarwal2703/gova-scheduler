@@ -94,6 +94,24 @@ function CustomDayButton(props: DayButtonProps) {
       {modifiers.today && !isSelected && (
         <span className="absolute bottom-1 w-1 h-1 rounded-full bg-indigo-600 dark:bg-indigo-400" />
       )}
+      {/* Misshapen pastel-green availability dot — shown when this date is selected */}
+      {isSelected && (
+        <span
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            bottom: "3px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            width: "7px",
+            height: "5px",
+            background: "#86efac", // pastel green (Tailwind green-300)
+            borderRadius: "62% 38% 55% 45% / 60% 44% 56% 40%",
+            opacity: 0.92,
+            pointerEvents: "none",
+          }}
+        />
+      )}
     </button>
   );
 }
