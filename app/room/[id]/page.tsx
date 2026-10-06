@@ -275,10 +275,10 @@ export default function RoomPage({ params }: RoomPageProps) {
             <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <Calendar className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                   <CardTitle className="text-base font-semibold">Your Availability</CardTitle>
                 </div>
-                <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                   {currentUserDates.length} selected
                 </span>
               </div>

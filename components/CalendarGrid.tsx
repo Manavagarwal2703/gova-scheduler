@@ -13,6 +13,7 @@ import {
   endOfMonth,
   eachDayOfInterval,
   isSameMonth,
+  addDays,
 } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,30 @@ const CalendarDragContext = React.createContext<CalendarDragContextType | null>(
   null
 );
 
+type SelectionShape =
+  | "none"
+  | "single"
+  | "range-start"
+  | "range-middle"
+  | "range-end";
+
+function dayKeyOffset(dateStr: string, days: number): string {
+  return format(addDays(parseISO(dateStr), days), "yyyy-MM-dd");
+}
+
+function getSelectionShape(
+  dateStr: string,
+  selectedSet: Set<string>
+): SelectionShape {
+  if (!selectedSet.has(dateStr)) return "none";
+  const hasPrev = selectedSet.has(dayKeyOffset(dateStr, -1));
+  const hasNext = selectedSet.has(dayKeyOffset(dateStr, 1));
+  if (!hasPrev && !hasNext) return "single";
+  if (!hasPrev && hasNext) return "range-start";
+  if (hasPrev && hasNext) return "range-middle";
+  return "range-end";
+}
+
 /**
  * Custom DayButton component rendered for each calendar cell.
  * Handles drag-to-select, pointer events, and keyboard accessibility.
@@ -63,8 +88,12 @@ function CustomDayButton(props: DayButtonProps) {
   const { day, modifiers, className, children, ...restProps } = props;
 
   const dateStr = format(day.date, "yyyy-MM-dd");
-  const isSelected = ctx?.selectedSet.has(dateStr) ?? modifiers.selected;
+  const selectedSet = ctx?.selectedSet ?? new Set<string>();
+  const isSelected = selectedSet.has(dateStr);
+  const shape = getSelectionShape(dateStr, selectedSet);
   const isDisabled = Boolean(ctx?.disabled || modifiers.disabled);
+  const isRangeEndpoint =
+    shape === "single" || shape === "range-start" || shape === "range-end";
 
   return (
     <button
@@ -76,50 +105,70 @@ function CustomDayButton(props: DayButtonProps) {
       onPointerDown={(e) => ctx?.onDatePointerDown(e, dateStr)}
       onPointerEnter={() => ctx?.onDatePointerEnter(dateStr)}
       onClick={(e) => ctx?.onDateClick(e, dateStr)}
-      style={
-        isSelected
-          ? {
-              backgroundColor: "#4f46e5",
-              color: "#ffffff",
-              boxShadow: "0 0 0 2px #818cf8, 0 2px 6px rgba(79,70,229,0.45)",
-            }
-          : undefined
-      }
       className={cn(
-        "relative flex items-center justify-center h-10 w-10 sm:h-11 sm:w-11 rounded-lg text-sm font-medium select-none touch-none transition-all duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1",
-        isSelected
-          ? "font-semibold active:scale-95 z-10"
-          : modifiers.outside
-          ? "text-slate-300 dark:text-slate-600 hover:bg-slate-100/60 dark:hover:bg-slate-800/40"
-          : modifiers.today
-          ? "text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100/70 dark:hover:bg-indigo-900/50"
-          : "text-slate-700 dark:text-slate-200 hover:bg-indigo-50/60 dark:hover:bg-slate-800/80 hover:text-indigo-600 dark:hover:text-indigo-300",
+        "relative flex items-center justify-center h-10 w-10 sm:h-11 sm:w-11 text-sm font-medium select-none touch-none transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-950",
+        isSelected && "z-10 active:scale-[0.97]",
+        !isSelected &&
+          (modifiers.outside
+            ? "text-slate-300 dark:text-slate-600 hover:bg-slate-100/60 dark:hover:bg-slate-800/40 rounded-lg"
+            : modifiers.today
+            ? "rounded-lg text-emerald-700 dark:text-emerald-400 font-semibold ring-1 ring-emerald-200 dark:ring-emerald-800 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/40"
+            : "rounded-lg text-slate-700 dark:text-slate-200 hover:bg-emerald-50/70 dark:hover:bg-slate-800/80 hover:text-emerald-700 dark:hover:text-emerald-300"),
         isDisabled &&
           "opacity-40 cursor-not-allowed pointer-events-none hover:bg-transparent",
         className
       )}
     >
-      {children}
-      {modifiers.today && !isSelected && (
-        <span className="absolute bottom-1 w-1 h-1 rounded-full bg-indigo-600 dark:bg-indigo-400" />
-      )}
-      {/* Misshapen pastel-green availability dot — shown when this date is selected */}
-      {isSelected && (
+      {isSelected && shape !== "single" && (
         <span
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            bottom: "3px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            width: "7px",
-            height: "5px",
-            background: "#86efac", // pastel green (Tailwind green-300)
-            borderRadius: "62% 38% 55% 45% / 60% 44% 56% 40%",
-            opacity: 0.92,
-            pointerEvents: "none",
-          }}
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute top-1/2 h-9 -translate-y-1/2 bg-emerald-100 dark:bg-emerald-900/45",
+            shape === "range-start" && "left-1/2 right-0 rounded-l-full",
+            shape === "range-middle" && "left-0 right-0",
+            shape === "range-end" && "left-0 right-1/2 rounded-r-full"
+          )}
         />
+      )}
+
+      {isSelected && isRangeEndpoint && (
+        <span
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute flex h-9 w-9 items-center justify-center rounded-full",
+            shape === "range-end"
+              ? "border-2 border-emerald-600 bg-white text-emerald-700 shadow-sm dark:border-emerald-500 dark:bg-slate-950 dark:text-emerald-300"
+              : "bg-emerald-600 text-white shadow-md shadow-emerald-600/30 dark:bg-emerald-500"
+          )}
+        />
+      )}
+
+      {isSelected && shape === "single" && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute h-9 w-9 rounded-xl bg-emerald-600 shadow-md shadow-emerald-600/25 dark:bg-emerald-500"
+        />
+      )}
+
+      <span
+        className={cn(
+          "relative z-10 tabular-nums leading-none",
+          isSelected &&
+            isRangeEndpoint &&
+            (shape === "range-end"
+              ? "font-semibold text-emerald-700 dark:text-emerald-300"
+              : "font-semibold text-white"),
+          isSelected &&
+            shape === "range-middle" &&
+            "font-semibold text-emerald-800 dark:text-emerald-100",
+          isSelected && shape === "single" && "font-semibold text-white"
+        )}
+      >
+        {children}
+      </span>
+
+      {modifiers.today && !isSelected && (
+        <span className="absolute bottom-1.5 h-1 w-1 rounded-full bg-emerald-500 dark:bg-emerald-400" />
       )}
     </button>
   );
@@ -421,7 +470,7 @@ export function CalendarGrid({
           <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Selection:
           </span>
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 shadow-2xs">
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/60 shadow-2xs">
             Selected: {selectedDates.length}{" "}
             {selectedDates.length === 1 ? "day" : "days"}
           </span>
@@ -435,10 +484,10 @@ export function CalendarGrid({
             size="sm"
             disabled={disabled}
             onClick={handleSelectAllWeekends}
-            className="text-xs h-8 px-2.5 font-medium border-slate-200 dark:border-slate-700 hover:bg-indigo-50/60 dark:hover:bg-slate-800 hover:text-indigo-600 transition-colors cursor-pointer"
+            className="text-xs h-8 px-2.5 font-medium border-slate-200 dark:border-slate-700 hover:bg-emerald-50/60 dark:hover:bg-slate-800 hover:text-emerald-700 transition-colors cursor-pointer"
             title="Toggle selection of all weekends in this month"
           >
-            <CalendarCheck className="h-3.5 w-3.5 mr-1.5 text-indigo-500 shrink-0" />
+            <CalendarCheck className="h-3.5 w-3.5 mr-1.5 text-emerald-600 shrink-0" />
             Select All Weekends
           </Button>
 
@@ -448,10 +497,10 @@ export function CalendarGrid({
             size="sm"
             disabled={disabled}
             onClick={handleSelectCurrentWeek}
-            className="text-xs h-8 px-2.5 font-medium border-slate-200 dark:border-slate-700 hover:bg-indigo-50/60 dark:hover:bg-slate-800 hover:text-indigo-600 transition-colors cursor-pointer"
+            className="text-xs h-8 px-2.5 font-medium border-slate-200 dark:border-slate-700 hover:bg-emerald-50/60 dark:hover:bg-slate-800 hover:text-emerald-700 transition-colors cursor-pointer"
             title="Toggle selection of the current week"
           >
-            <CalendarDays className="h-3.5 w-3.5 mr-1.5 text-violet-500 shrink-0" />
+            <CalendarDays className="h-3.5 w-3.5 mr-1.5 text-emerald-600 shrink-0" />
             Select Current Week
           </Button>
 
@@ -476,8 +525,8 @@ export function CalendarGrid({
           className="relative flex justify-center py-2 px-1 select-none"
           style={
             {
-              "--rdp-accent-color": "#4f46e5",
-              "--rdp-accent-background-color": "#eef2ff",
+              "--rdp-accent-color": "#059669",
+              "--rdp-accent-background-color": "#ecfdf5",
               "--rdp-day-height": "42px",
               "--rdp-day-width": "42px",
               "--rdp-day_button-height": "38px",
@@ -517,7 +566,7 @@ export function CalendarGrid({
 
       {/* Helpful tip hint footer */}
       <div className="text-[11px] text-slate-400 dark:text-slate-500 text-center flex items-center justify-center gap-1.5 pt-1">
-        <MousePointerClick className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+        <MousePointerClick className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
         <span>Click or drag across dates to quickly select your availability</span>
       </div>
     </div>
